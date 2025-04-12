@@ -1,3 +1,6 @@
-dataset/
+dataset/*
+!dataset/adult/
+!dataset/adult/**
+
 example.ipynb
 example.py
