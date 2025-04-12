@@ -1,0 +1,30 @@
+seed: 42
+
+wandb:
+  project: "tabembed"
+  run_name: "vanilla_tab-transformer"
+  
+data:
+  data_path: "./data/uci_credit.csv"
+  num_samples: 10000
+  categorical_features: ['SEX', 'EDUCATION', 'MARRIAGE', 
+    'PAY_0', 'PAY_2', 'PAY_3', 'PAY_4', 'PAY_5', 'PAY_6']
+  continuous_features: ['LIMIT_BAL', 'AGE', 'BILL_AMT1', 'BILL_AMT2',
+    'BILL_AMT3', 'BILL_AMT4', 'BILL_AMT5', 'BILL_AMT6', 'PAY_AMT1', 'PAY_AMT2', 'PAY_AMT3', 'PAY_AMT4', 'PAY_AMT5', 'PAY_AMT6']
+  target: 'DEFAULT'
+  category_sizes: [2, 7, 4, 11, 11, 11, 10, 9, 10]
+  num_continuous: 14
+
+model:
+  dim: 32
+  depth: 6
+  heads: 8
+  attn_dropout: 0.1
+  ff_dropout: 0.1
+  use_shared_categ_embed: true
+  num_residual_streams: 1
+
+train:
+  batch_size: 128
+  lr: 0.001
+  num_epochs: 10
