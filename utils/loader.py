@@ -33,7 +33,7 @@ class GroupDataset(Dataset):
 
     def __getitem__(self, idx):
         # return self.features[idx], self.labels[idx], self.groups[idx], self.sample_ids[idx] 
-        return self.features[idx], self.labels[idx],  self.sample_ids[idx] 
+        return self.features[idx], self.labels[idx]
 
 
 def get_column_names(names_file):

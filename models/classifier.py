@@ -1,6 +1,22 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from xgboost import XGBClassifier
+
+class XGBoostClassifier:
+    def __init__(self, **kwargs):
+        self.model = XGBClassifier(**kwargs)
+
+    def fit(self, X, y):
+        self.model.fit(X, y)
+
+    def predict(self, X):
+        return self.model.predict(X)
+
+    def predict_proba(self, X):
+        return self.model.predict_proba(X)
+    
+###########################################################################
 
 class GLU_Block(nn.Module):
     def __init__(self, input_dim, output_dim):
@@ -71,16 +87,7 @@ class TabNet(nn.Module):
         logits = self.fc(out_agg)
         return F.log_softmax(logits, dim=-1)
 
-if __name__ == "__main__":
-    model = TabNet(input_dim=14, hidden_dim=64, n_steps=3, num_classes=2)
-    sample_input = torch.randn(32, 14)  # Batch 32, Feature 14
-    output = model(sample_input)
-    print("Output shape:", output.shape)  # Expected: (32, 2)
-
-
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
+###########################################################################
 
 class NODEBlock(nn.Module):
     def __init__(self, input_dim, hidden_dim, num_trees, depth=2):
@@ -108,12 +115,11 @@ class NODEBlock(nn.Module):
         out = self.leaf_weights(leaves)  # (batch_size, hidden_dim)
         return out
 
-
 class NODE(nn.Module):
-    def __init__(self, config):
+    def __init__(self, input_dim, config):
         super(NODE, self).__init__()
         self.node_block = NODEBlock(
-            input_dim=config['input_dim'],
+            input_dim=input_dim,
             hidden_dim=config['hidden_dim'],
             num_trees=config['num_trees'],
             depth=config.get('depth', 2)
