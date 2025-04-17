@@ -63,7 +63,7 @@ class Trainer:
         all_preds = []
 
         with torch.no_grad():
-            for x_batch, _, _, _ in data_loader:
+            for x_batch, _ in data_loader:
                 x_batch = x_batch.to(device)
                 output = self.model(x_batch)
                 preds = torch.argmax(output, dim=1)

@@ -28,7 +28,7 @@ cluster_params:
   random_state: 42
 
 train_params:
-  epochs: 100
+  epochs: 3
   lr: 0.001
 
 # Iteration config

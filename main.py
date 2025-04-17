@@ -9,7 +9,7 @@ from models.classifier import XGBoostClassifier, NODE, TabNet
 from models.soft_cluster import DPGMM
 from utils.loader import load_data
 from utils.train import Trainer
-from study_fairtab.utils.error import compute_error, adjust_error
+from utils.error import compute_error, adjust_error
 
 with open('config.yaml', 'r') as file:
     config = yaml.safe_load(file)
@@ -30,10 +30,6 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
 dataset = config['dataset'].lower()
-model_name = model_type[config['model']]
-model = model_name(config['model_params']).to(device)
-cluster_name = cluster_type[config['cluster']]
-cluster_model = eval(cluster_name)(config['cluster_params'])
 n_iters = config['n_iters']
 
 train_loader, valid_loader, test_loader, train_df = load_data(dataset)
@@ -48,19 +44,26 @@ z_train = encoder.encode(X_train)
 z_valid = encoder.encode(X_valid) 
 
 # Latent Grouping via Soft Clustering
+cluster_name = cluster_type[config['cluster']]
+cluster_model = cluster_name(config['cluster_params'])
 cluster_model.fit(z_valid)
 train_group_labels = cluster_model.predict(z_train) # hard cluster labels
+valid_group_labels = cluster_model.predict(z_valid) # hard cluster labels
 train_group = cluster_model.predict_proba(z_train) # soft cluster probabilities
 valid_group = cluster_model.predict_proba(z_valid) # soft cluster probabilities
 
-# ERM Model Training
+# Visualize cluster labels
+
+# ERM Model 
+model_name = model_type[config['model']]
+model = model_name(input_dim=input_dim, config=config['model_params']).to(device)
 trainer = Trainer(model) # loss_fn
 trainer.train(train_loader, config['train_params'], device=device)
 y_train_true = train_loader.dataset.labels
 y_valid_true = valid_loader.dataset.labels
 
-y_train_hat = trainer.predict(X_train)
-y_valid_hat = trainer.predict(X_valid)
+y_train_hat = trainer.predict(train_loader)
+y_valid_hat = trainer.predict(valid_loader)
 
 # prediction error
 train_error = compute_error(y_train_hat, y_train_true)
@@ -69,7 +72,7 @@ valid_error = compute_error(y_valid_hat, y_valid_true)
 # Iteration
 for i in range(n_iters):
     # Error Adjustment via latent group info
-    train_error_adj, valid_error_adj = adjust_error(train_error, valid_error, 
+    train_error_adj, valid_error_adj = adjust_error(train_error, valid_error, y_train_true, y_valid_true,
                                                     q_train=train_group, q_valid=valid_group, g_train=train_group_labels)
 
     # Joint Embedding z_[z_j, r^adj_j] (concatenate z_valid and error_adj)
