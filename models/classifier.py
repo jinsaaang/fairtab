@@ -129,4 +129,4 @@ class NODE(nn.Module):
     def forward(self, x):
         x = self.node_block(x)
         x = self.fc(x)
-        return F.log_softmax(x, dim=-1)
+        return F.softmax(x, dim=-1)

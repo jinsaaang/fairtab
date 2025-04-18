@@ -1,4 +1,5 @@
 import torch
+import numpy as np
 
 def compute_error(y_pred, y_true):
     """
@@ -11,80 +12,88 @@ def compute_error(y_pred, y_true):
     Returns:
     - error: (N, 1) torch.Tensor
     """
-    if isinstance(y_pred, torch.Tensor):
-        y_pred = y_pred.detach().cpu()
-    if isinstance(y_true, torch.Tensor):
-        y_true = y_true.detach().cpu()
+    y_pred = y_pred.to(dtype=torch.float32)
+    y_true = y_true.to(dtype=torch.long)
 
     # Absolute error for classification
-    # print(f"y_pred: {y_pred.shape}, y_true: {y_true.shape}")
-    error = torch.abs(y_pred - y_true).unsqueeze(1)  # (N, 1)
-    return error
+    correct_probs = y_pred[torch.arange(len(y_true)), y_true]  # (N,)
+    error = 1.0 - correct_probs  # (N,)
+    return error.unsqueeze(1)
 
-def adjust_error(train_error, valid_error, y_train, y_valid, q_train, q_valid, g_train, 
+
+def adjust_error(train_error, valid_error, q_train, q_valid,
+                 g_train, y_train, y_valid,
                  num_classes=2, alpha=1.0, beta=1.0, eps=1e-8):
     """
-    Adjust errors using cluster-wise label imbalance and sample scarcity,
-    accounting for per-sample label frequency within clusters.
+    Adjust sample-wise errors using:
+    - whether the sample's class is the major class in its cluster
+    - how large the cluster is (large group → error ↑)
 
     Args:
-    - train_error: (N_train, 1) torch tensor
-    - valid_error: (N_valid, 1) torch tensor
-    - q_train: (N_train, G) numpy array
-    - q_valid: (N_valid, G) numpy array
-    - g_train: (N_train,) torch tensor
-    - y_train: (N_train,) torch tensor
-    - y_valid: (N_valid,) torch tensor
-    - num_classes: number of classes
-    - alpha, beta: regularization weights
-    - eps: small value to prevent division by zero
+        train_error, valid_error: (N, 1) torch tensors
+        q_train, q_valid: (N, G) torch tensors (soft assignments)
+        g_train: (N,) torch tensor of hard cluster assignments
+        y_train, y_valid: (N,) torch tensor of true labels
+        alpha, beta: scaling factors
+        num_classes: number of class labels
+        eps: for numerical stability
 
     Returns:
-    - train_error_adj: (N_train, 1) torch tensor
-    - valid_error_adj: (N_valid, 1) torch tensor
+        train_error_adj, valid_error_adj: torch tensors (N, 1)
     """
+    train_error = train_error.to(torch.float32)
+    valid_error = valid_error.to(torch.float32)
+
     device = train_error.device
     N_train, G = q_train.shape
 
-    # 1. Cluster-wise label stats
+    # 1. group statistics
     cluster_stats = {}
     for g in range(G):
         mask = (g_train == g)
         if mask.sum() == 0:
-            class_ratio = torch.ones(num_classes, device=device) / num_classes
-            size_penalty = torch.tensor(1.0, device=device)
+            class_counts = torch.ones(num_classes, device=device)
+            size_score = torch.tensor(0.0, device=device)
         else:
-            labels_in_cluster = y_train[mask]
-            class_counts = torch.bincount(labels_in_cluster, minlength=num_classes).float()
-            total = class_counts.sum()
-            class_ratio = class_counts / (total + eps)
-            size_penalty = torch.log(1 + total) / torch.log(torch.tensor(N_train + 1.0, device=device))
+            labels = y_train[mask]
+            class_counts = torch.bincount(labels, minlength=num_classes).float().to(device)
+            size_score = torch.log(torch.tensor(1.0 + labels.size(0), device=device)) / \
+                         torch.log(torch.tensor(1.0 + N_train, device=device))
 
+        major_class = torch.argmax(class_counts)
         cluster_stats[g] = {
-            'class_ratio': class_ratio,
-            'size_factor': size_penalty
+            'major_class': major_class.item(),  # int
+            'size_score': size_score.item()     # float
         }
 
-    # 2. Adjust error sample-wise
-    def compute_adjusted_error(error, q_np, y):
+    # 2. sample-wise adjustment
+    def compute_adjusted_error(error, q_soft, y):
         N = error.shape[0]
-        adjusted = torch.zeros_like(error, dtype=torch.float)
+        adj_error = torch.zeros(error.shape, device=error.device, dtype=error.dtype)
 
         for g in range(G):
-            weight_np = q_np[:, g].reshape(-1, 1)  # (N, 1) numpy
-            weight = torch.from_numpy(weight_np).to(device=device, dtype=error.dtype)
+            weight = q_soft[:, g].unsqueeze(1).to(device=device, dtype=error.dtype)  # (N, 1)
 
-            class_ratio = cluster_stats[g]['class_ratio']
-            size_factor = cluster_stats[g]['size_factor']
+            major_class = cluster_stats[g]['major_class']
+            size_score = cluster_stats[g]['size_score']
 
-            sample_class_ratio = class_ratio[y]  # (N,)
-            label_penalty = 1.0 / (sample_class_ratio + eps)
-            mod = 1.0 - (alpha * (1 - label_penalty.unsqueeze(1)) + beta * (1 - size_factor))
-            mod = torch.clamp(mod, min=0.1, max=2.0)
+            is_major = (y == major_class).float().unsqueeze(1)  # (N, 1)
+            is_minor = 1.0 - is_major
 
-            adjusted += weight * (error * mod)
+            # 조정 계수
+            label_mod = (1.0 + alpha) * is_major + (1.0 - alpha) * is_minor
+            size_mod = 1.0 + beta * (size_score - 0.5)
 
-        return adjusted
+            mod = label_mod * size_mod  
+            adj_error += weight * (error * mod)
+
+        return adj_error
+
+    # ensure q input is tensor
+    if isinstance(q_train, np.ndarray):
+        q_train = torch.from_numpy(q_train).to(device=train_error.device, dtype=train_error.dtype)
+    if isinstance(q_valid, np.ndarray):
+        q_valid = torch.from_numpy(q_valid).to(device=valid_error.device, dtype=valid_error.dtype)
 
     train_error_adj = compute_adjusted_error(train_error, q_train, y_train)
     valid_error_adj = compute_adjusted_error(valid_error, q_valid, y_valid)

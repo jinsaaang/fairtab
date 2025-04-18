@@ -66,7 +66,7 @@ class Trainer:
             for x_batch, _ in data_loader:
                 x_batch = x_batch.to(device)
                 output = self.model(x_batch)
-                preds = torch.argmax(output, dim=1)
-                all_preds.append(preds.cpu())
+                # preds = torch.argmax(output, dim=1)
+                all_preds.append(output.cpu())
 
         return torch.cat(all_preds)
